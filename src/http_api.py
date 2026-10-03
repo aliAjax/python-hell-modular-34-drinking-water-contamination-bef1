@@ -1,5 +1,4 @@
 import json
-import mimetypes
 import os
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
@@ -41,22 +40,30 @@ def build_handler(service, static_dir):
         def _error(self, exc):
             status = getattr(exc, "status", 500)
             code = getattr(exc, "code", "internal_error")
-            self._send(status, {"error": code, "message": str(exc)})
+            body = {"error": code, "message": str(exc)}
+            details = getattr(exc, "details", None)
+            if details:
+                body["details"] = details
+            self._send(status, body)
 
         def do_GET(self):
+            actor = role = region = None
             try:
+                actor, role, region = self._identity()
                 path = urlparse(self.path).path
                 if path == "/health":
                     return self._send(200, {"status": "ok"})
                 if path == "/api/state":
-                    return self._send(200, service.state())
+                    return self._send(200, service.state(actor, role, region))
                 if path == "/api/items":
-                    return self._send(200, {"items": service.list_items()})
+                    return self._send(200, {"items": service.list_items(None, actor, role, region)})
+                if path == "/api/reconciliation/pending":
+                    return self._send(200, service.list_pending(actor, role, region))
                 parts = [part for part in path.split("/") if part]
                 if len(parts) == 3 and parts[:2] == ["api", "items"]:
-                    return self._send(200, service.get_item(int(parts[2])))
+                    return self._send(200, service.get_item(int(parts[2]), actor, role, region))
                 if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "audit":
-                    item = service.get_item(int(parts[2]))
+                    item = service.get_item(int(parts[2]), actor, role, region)
                     return self._send(200, {"events": item["audit"]})
                 if path == "/":
                     file_path = os.path.join(static_dir, "index.html")
@@ -86,6 +93,11 @@ def build_handler(service, static_dir):
                         raise DomainError("action_required", "缺少 action", 400)
                     expected = payload.pop("expected_version", None)
                     return self._send(200, service.act(int(parts[2]), action, payload, actor, role, expected, region))
+                if parts == ["api", "incidents", "link"]:
+                    item_ids = payload.pop("item_ids", [])
+                    return self._send(200, service.link_incident(item_ids, payload, actor, role, region))
+                if parts == ["api", "reconciliation", "batches"]:
+                    return self._send(200, service.replay_batch(payload, actor, role, region))
                 return self._send(404, {"error": "not_found", "message": "接口不存在"})
             except DomainError as exc:
                 return self._error(exc)

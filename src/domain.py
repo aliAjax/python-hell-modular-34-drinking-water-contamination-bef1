@@ -2,10 +2,11 @@ from datetime import datetime
 
 
 class DomainError(Exception):
-    def __init__(self, code, message, status=400):
+    def __init__(self, code, message, status=400, details=None):
         super().__init__(message)
         self.code = code
         self.status = status
+        self.details = details
 
 
 class ConflictError(DomainError):
@@ -61,7 +62,10 @@ def normalize_create(payload):
     population = int(payload.get("population", 0) or 0)
     if population < 0:
         raise DomainError("invalid_population", "受影响人数不能为负数")
-    stable_key = "%s|%s|%s" % (source_id, contaminant, detected_at)
+    region = (payload.get("region") or "").strip() or None
+    # 区域并入稳定键：同一起污染被相邻两个区各自立案时是两条独立记录，
+    # 之后再通过跨区配对接成同一件污染事件。
+    stable_key = "%s|%s|%s|%s" % (region or "-", source_id, contaminant, detected_at)
     return {
         "source_id": source_id,
         "contaminant": contaminant,
@@ -69,6 +73,7 @@ def normalize_create(payload):
         "concentration": concentration,
         "limit": limit,
         "zone_ids": [zone.strip() for zone in zones],
+        "region": region,
         "population": population,
         "complaints": int(payload.get("complaints", 0) or 0),
         "notifications": [],

@@ -1,5 +1,12 @@
-<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>饮用水污染响应</title><body><h1>市政饮用水污染响应</h1><p>使用 JSON API 创建污染事件、登记水源或管网记录，并完成复检、通知、冲洗、消毒和恢复。</p><pre>GET /health
-GET /api/state
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>饮用水污染响应</title><body><h1>市政饮用水污染响应</h1><p>使用 JSON API 创建污染事件、登记水源或管网记录，并完成复检、通知、冲洗、消毒和恢复。请求头 <code>X-User-Id</code>/<code>X-Role</code>/<code>X-Region</code> 标识身份与所在区域。</p>
+<pre>GET  /health
+GET  /api/state
+GET  /api/items
 POST /api/items
 POST /api/items/{id}/sources
-POST /api/items/{id}/actions</pre></body></html>
+POST /api/items/{id}/actions
+POST /api/incidents/link            # 跨区配对：两区立案接成同一件污染事件（监管角色）
+POST /api/reconciliation/batches    # 断网补录：按 seq 回放，区域+外部编号只入账一次
+GET  /api/reconciliation/pending    # 版本对不上等待处理的补录（普通角色限本区域）</pre>
+<p>配对后同一通知编号在联动区只发一次；任一联动区复检未全部达标则挡住恢复并列出缺哪个区；补录审计事件带 <code>_origin.kind=backfill</code>；监管角色可跨区处置，普通角色访问外区记录返回 403。</p>
+</body></html>

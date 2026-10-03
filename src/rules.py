@@ -4,6 +4,7 @@ ENTITY_TYPE = "water_contamination"
 INITIAL_STATUS = "detected"
 CREATE_ROLES = {"analyst", "dispatcher"}
 SOURCE_ROLES = {"analyst", "dispatcher", "field_operator", "lab"}
+LINK_ROLES = {"coordinator", "regulator"}
 ACTION_ROLES = {
     "verify": {"analyst", "dispatcher"},
     "advise": {"coordinator", "dispatcher"},
@@ -14,8 +15,10 @@ ACTION_ROLES = {
     "restore": {"coordinator", "regulator"},
     "cancel": {"coordinator"},
 }
-ENFORCE_REGION = False
-REGION_SENSITIVE_ACTIONS = set()
+# 跨区管辖：只有监管角色可以跨区下达处置，普通角色只能处理本区域记录。
+ENFORCE_REGION = True
+REGION_SENSITIVE_ACTIONS = set(ACTION_ROLES)
+REGIONLESS_ROLE = "regulator"
 ACTION_REQUIRES_VERSION = {"advise", "switch_source", "flush", "disinfect", "sample", "restore", "cancel"}
 
 

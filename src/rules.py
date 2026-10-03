@@ -5,18 +5,27 @@ INITIAL_STATUS = "detected"
 CREATE_ROLES = {"analyst", "dispatcher"}
 SOURCE_ROLES = {"analyst", "dispatcher", "field_operator", "lab"}
 ACTION_ROLES = {
-    "verify": {"analyst", "dispatcher"},
-    "advise": {"coordinator", "dispatcher"},
-    "switch_source": {"coordinator"},
-    "flush": {"field_operator"},
-    "disinfect": {"field_operator"},
-    "sample": {"lab", "field_operator"},
+    "verify": {"analyst", "dispatcher", "regulator"},
+    "advise": {"coordinator", "dispatcher", "regulator"},
+    "switch_source": {"coordinator", "regulator"},
+    "flush": {"field_operator", "regulator"},
+    "disinfect": {"field_operator", "regulator"},
+    "sample": {"lab", "field_operator", "regulator"},
     "restore": {"coordinator", "regulator"},
-    "cancel": {"coordinator"},
+    "cancel": {"coordinator", "regulator"},
 }
-ENFORCE_REGION = False
-REGION_SENSITIVE_ACTIONS = set()
+ENFORCE_REGION = True
+REGION_SENSITIVE_ACTIONS = {"verify", "advise", "switch_source", "flush", "disinfect", "sample", "restore", "cancel"}
 ACTION_REQUIRES_VERSION = {"advise", "switch_source", "flush", "disinfect", "sample", "restore", "cancel"}
+
+
+def linked_regions(payload):
+    """All districts linked to this event (the creating region plus paired ones)."""
+    regions = list(payload.get("regions", []))
+    primary = payload.get("region")
+    if primary and primary not in regions:
+        regions.insert(0, primary)
+    return [r for r in regions if r]
 
 
 def assess(payload):
@@ -48,7 +57,7 @@ def _text(payload, name):
     return value.strip()
 
 
-def apply_action(item, action, payload, actor, role):
+def apply_action(item, action, payload, actor, role, region=None):
     status = item["status"]
     current = dict(item["payload"])
 
@@ -101,6 +110,7 @@ def apply_action(item, action, payload, actor, role):
             "sample_id": _text(payload, "sample_id"),
             "zone_id": _text(payload, "zone_id"),
             "concentration": float(payload.get("concentration", 0)),
+            "region": payload.get("region") or region or "",
         }
         if result["concentration"] < 0:
             raise DomainError("invalid_concentration", "浓度不能为负数")
@@ -113,10 +123,25 @@ def apply_action(item, action, payload, actor, role):
             raise DomainError("zones_not_cleared", "仍有区域未完成水质恢复", 409)
         limit = float(current.get("limit", 0))
         results = current.get("sample_results", [])
-        if not results or any(float(result["concentration"]) > limit for result in results):
-            raise DomainError("quality_not_met", "复检结果未全部达到限值", 409)
+        regions = linked_regions(current)
+        missing = []
+        if regions:
+            # Every linked district must have all its re-inspection samples below the limit.
+            for region in regions:
+                region_results = [r for r in results if r.get("region") == region]
+                if not region_results or any(float(r["concentration"]) > limit for r in region_results):
+                    missing.append(region)
+        else:
+            if not results or any(float(result["concentration"]) > limit for result in results):
+                missing.append("")
+        if missing:
+            raise DomainError(
+                "quality_not_met",
+                "联动区域复检未全部达标，缺少或未达标的区域: %s" % "、".join(m for m in missing if m),
+                409,
+            )
         current["restoration"] = {"actor": actor, "note": payload.get("note", "")}
-        return "restored", current, {"restoration": current["restoration"]}
+        return "restored", current, {"restoration": current["restoration"], "missing_regions": missing}
 
     if action == "cancel":
         _need_status(item, {"detected", "verified"})

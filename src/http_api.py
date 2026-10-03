@@ -46,17 +46,20 @@ def build_handler(service, static_dir):
         def do_GET(self):
             try:
                 path = urlparse(self.path).path
+                actor, role, region = self._identity()
                 if path == "/health":
                     return self._send(200, {"status": "ok"})
                 if path == "/api/state":
                     return self._send(200, service.state())
                 if path == "/api/items":
                     return self._send(200, {"items": service.list_items()})
+                if path == "/api/pending":
+                    return self._send(200, {"pending": service.list_pending()})
                 parts = [part for part in path.split("/") if part]
                 if len(parts) == 3 and parts[:2] == ["api", "items"]:
-                    return self._send(200, service.get_item(int(parts[2])))
+                    return self._send(200, service.get_item(int(parts[2]), actor, role, region))
                 if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "audit":
-                    item = service.get_item(int(parts[2]))
+                    item = service.get_item(int(parts[2]), actor, role, region)
                     return self._send(200, {"events": item["audit"]})
                 if path == "/":
                     file_path = os.path.join(static_dir, "index.html")
@@ -78,8 +81,18 @@ def build_handler(service, static_dir):
                 parts = [part for part in path.split("/") if part]
                 if parts == ["api", "items"]:
                     return self._send(201, service.create_item(payload, actor, role, region))
+                if parts == ["api", "reconcile"]:
+                    return self._send(200, service.reconcile(payload, actor, role, region))
                 if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "sources":
                     return self._send(201, service.add_source(int(parts[2]), payload, actor, role, region))
+                if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "pair":
+                    other = payload.get("other_item_id")
+                    if not isinstance(other, int):
+                        raise DomainError("invalid_pair", "other_item_id 必须是整数", 400)
+                    return self._send(200, service.pair(int(parts[2]), other, actor, role, region))
+                if len(parts) == 5 and parts[:2] == ["api", "pending"] and parts[3] == "resolve":
+                    action = payload.get("action", "accept")
+                    return self._send(200, service.resolve_pending(int(parts[2]), action, actor, role))
                 if len(parts) == 4 and parts[:2] == ["api", "items"] and parts[3] == "actions":
                     action = payload.pop("action", "")
                     if not action:

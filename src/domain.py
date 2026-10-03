@@ -91,3 +91,51 @@ def normalize_source(payload):
         "note": payload.get("note", ""),
     }
     return result
+
+
+def normalize_reconcile(payload):
+    batch_id = require_text(payload, "batch_id")
+    region = require_text(payload, "region")
+    items = payload.get("items", [])
+    if not isinstance(items, list):
+        raise DomainError("invalid_batch", "items 必须是列表")
+    normalized_items = []
+    for snap in items:
+        if not isinstance(snap, dict):
+            raise DomainError("invalid_batch", "每条补录记录必须是对象")
+        stable_key = require_text(snap, "stable_key")
+        snap_region = snap.get("region") or region
+        version = snap.get("version")
+        if version is not None:
+            try:
+                version = int(version)
+            except (TypeError, ValueError):
+                raise DomainError("invalid_batch", "version 必须是整数")
+        snap_payload = snap.get("payload", {})
+        if not isinstance(snap_payload, dict):
+            raise DomainError("invalid_batch", "payload 必须是对象")
+        normalized_items.append({
+            "stable_key": stable_key,
+            "region": snap_region,
+            "status": snap.get("status"),
+            "version": version,
+            "payload": snap_payload,
+            "created_at": snap.get("created_at"),
+        })
+    sources = payload.get("sources", [])
+    if not isinstance(sources, list):
+        raise DomainError("invalid_batch", "sources 必须是列表")
+    return {
+        "batch_id": batch_id,
+        "region": region,
+        "items": normalized_items,
+        "sources": sources,
+    }
+
+
+def normalize_pair(payload):
+    item_id = payload.get("item_id")
+    other_id = payload.get("other_item_id")
+    if not isinstance(item_id, int) or not isinstance(other_id, int):
+        raise DomainError("invalid_pair", "item_id 和 other_item_id 必须是整数")
+    return {"item_id": item_id, "other_item_id": other_id}
